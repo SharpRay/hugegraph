@@ -118,6 +118,7 @@ public class JsonSerializer implements Serializer {
                                             iter.getClass());
                 }
                 if (page != null) {
+                    page.replaceAll("[+]", "%2B");
                     page = String.format(",\"page\": \"%s\"", page);
                 } else {
                     page = ",\"page\": null";
