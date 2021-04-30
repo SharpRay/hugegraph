@@ -41,6 +41,8 @@ public class ClickhouseStore extends AbstractBackendStore<Session> {
 
     public static class ClickhouseSchemaStore extends ClickhouseStore {
 
-        private final ClickhouseTable
+        private final ClickhouseTable.Counters counters;
+
+
     }
 }
