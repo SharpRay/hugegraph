@@ -14,4 +14,19 @@ public class ClickhouseStoreProvider extends AbstractBackendStoreProvider {
     protected BackendStore newSchemaStore(String store) {
         return new ClickhouseStore.ClickhouseSchemaStore(this, this.database(), store);
     }
+
+    @Override
+    protected BackendStore newGraphStore(String store) {
+        return new ClickhouseStore.ClickhouseGraphStore(this, this.database(), store);
+    }
+
+    @Override
+    public String type() {
+        return "clickhouse";
+    }
+
+    @Override
+    public String version() {
+        return "0.10";
+    }
 }

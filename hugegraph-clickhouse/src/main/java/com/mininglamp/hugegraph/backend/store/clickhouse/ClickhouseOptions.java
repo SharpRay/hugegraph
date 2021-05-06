@@ -80,11 +80,11 @@ public class ClickhouseOptions extends OptionHolder {
                     "false"
             );
 
-    public static final ConfigOption<String> STORAGE_ENGINE =
-            new ConfigOption<>(
-                    "jdbc.storage_engine",
-                    "The storage engine of backend store database, like MergeTree/ReplacingMergeTree for Clickhouse.",
-                    disallowEmpty(),
-                    "ReplacingMergeTree"
-            );
+//    public static final ConfigOption<String> STORAGE_ENGINE =
+//            new ConfigOption<>(
+//                    "jdbc.storage_engine",
+//                    "The storage engine of backend store database, like MergeTree/ReplacingMergeTree for Clickhouse.",
+//                    disallowEmpty(),
+//                    "ReplacingMergeTree"
+//            );
 }

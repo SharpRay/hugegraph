@@ -1,17 +1,23 @@
 package com.mininglamp.hugegraph.backend.store.clickhouse;
 
 import com.baidu.hugegraph.backend.BackendException;
-import com.baidu.hugegraph.backend.id.EdgeId;
-import com.baidu.hugegraph.backend.id.Id;
+import com.baidu.hugegraph.backend.id.*;
+import com.baidu.hugegraph.backend.serializer.TableBackendEntry;
+import com.baidu.hugegraph.backend.store.BackendEntry;
+import com.baidu.hugegraph.backend.store.BackendEntryIterator;
 import com.baidu.hugegraph.backend.store.TableDefine;
 import com.baidu.hugegraph.type.HugeType;
 import com.baidu.hugegraph.type.define.Directions;
 import com.baidu.hugegraph.type.define.HugeKeys;
 
+import com.baidu.hugegraph.util.E;
 import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
 
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class ClickhouseTables {
@@ -33,11 +39,11 @@ public class ClickhouseTables {
     private static final String SMALL_JSON = MID_TEXT;
     private static final String LARGE_JSON = LARGE_TEXT;
 
-    public static class ClickhouseTemplate extends ClickhouseTable {
+    public static class ClickhouseTableTemplate extends ClickhouseTable {
 
         protected TableDefine define;
 
-        public ClickhouseTemplate(String table) {
+        public ClickhouseTableTemplate(String table) {
             super(table);
         }
 
@@ -47,7 +53,7 @@ public class ClickhouseTables {
         }
     }
 
-    public static class Counters extends ClickhouseTemplate {
+    public static class Counters extends ClickhouseTableTemplate {
 
         // counter table name's 'c'
         public static final String TABLE = HugeType.COUNTER.string();
@@ -105,7 +111,7 @@ public class ClickhouseTables {
         }
     }
 
-    public static class VertexLabel extends ClickhouseTemplate {
+    public static class VertexLabel extends ClickhouseTableTemplate {
 
         // vertex label table name's 'vl'
         public static final String TABLE = HugeType.VERTEX_LABEL.string();
@@ -142,7 +148,7 @@ public class ClickhouseTables {
         }
     }
 
-    public static class EdgeLabel extends ClickhouseTemplate {
+    public static class EdgeLabel extends ClickhouseTableTemplate {
 
         // edge label table name's 'el'
         public static final String TABLE = HugeType.EDGE_LABEL.string();
@@ -183,7 +189,7 @@ public class ClickhouseTables {
         }
     }
 
-    public static class PropertyKey extends ClickhouseTemplate {
+    public static class PropertyKey extends ClickhouseTableTemplate {
 
         // property key table name's 'pk'
         public static final String TABLE = HugeType.PROPERTY_KEY.string();
@@ -196,14 +202,16 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.ID, DATATYPE_PK);
             // 'name' column of table 'pk'
             this.define.column(HugeKeys.NAME, SMALL_TEXT);
-            // 'base_type' column of table 'pk'
-            this.define.column(HugeKeys.BASE_TYPE, TINYINT);
-            // 'base_value' colume of table 'pk'
-            this.define.column(HugeKeys.BASE_VALUE, DATATYPE_SL);
-            // 'index_type' column of table 'pk'
-            this.define.column(HugeKeys.INDEX_TYPE, TINYINT);
-            // 'fields' column of table 'pk'
-            this.define.column(HugeKeys.FIELDS, SMALL_JSON);
+            // 'data_type' column of table 'pk'
+            this.define.column(HugeKeys.DATA_TYPE, TINYINT);
+            // 'cardinality' colume of table 'pk'
+            this.define.column(HugeKeys.CARDINALITY, TINYINT);
+            // 'aggregate_type' column of table 'pk'
+            this.define.column(HugeKeys.AGGREGATE_TYPE, TINYINT);
+            // 'read_frequency' column of table 'pk'
+            this.define.column(HugeKeys.READ_FREQUENCY, TINYINT);
+            // 'properties' column of table 'pk'
+            this.define.column(HugeKeys.PROPERTIES, SMALL_JSON);
             // 'user_data' column of table 'pk' with JSON literal value
             this.define.column(HugeKeys.USER_DATA, LARGE_JSON);
             // 'status' column of table 'pk'
@@ -212,7 +220,7 @@ public class ClickhouseTables {
         }
     }
 
-    public static class IndexLabel extends ClickhouseTemplate {
+    public static class IndexLabel extends ClickhouseTableTemplate {
 
         // index label table name's 'IL'
         public static final String TABLE = HugeType.INDEX_LABEL.string();
@@ -241,7 +249,7 @@ public class ClickhouseTables {
         }
     }
 
-    public static class Vertex extends ClickhouseTemplate {
+    public static class Vertex extends ClickhouseTableTemplate {
 
         // vertex table name's '${store}_v'
         public static final String TABLE = HugeType.VERTEX.string();
@@ -263,12 +271,12 @@ public class ClickhouseTables {
     }
 
     /**
-     * Ub consideration of performance, Edge table should be
+     * In consideration of performance, Edge table should be
      * created with the partitioning by label,
      * so we could delete all the edges bind to a label
      * using 'DROP PARTITION' operation.
      */
-    public static class Edge extends ClickhouseTemplate {
+    public static class Edge extends ClickhouseTableTemplate {
 
         /*
          * edge table with the suffix 'e',
@@ -286,7 +294,7 @@ public class ClickhouseTables {
             this.direction = direction;
             this.delByLabelTemplate = String.format(
                     "ALTER TABLE %s DROP PART '?';",
-                    this.table(), formatKey(HugeKeys.LABEL));
+                    this.table());
 
             this.define = new TableDefine();
             this.define.column(HugeKeys.OWNER_VERTEX, SMALL_TEXT);
@@ -296,6 +304,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.OTHER_VERTEX, SMALL_TEXT);
             this.define.column(HugeKeys.PROPERTIES, LARGE_JSON);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.OWNER_VERTEX, HugeKeys.DIRECTION,
                     HugeKeys.LABEL, HugeKeys.SORT_VALUES,
                     HugeKeys.OTHER_VERTEX);
@@ -308,12 +320,309 @@ public class ClickhouseTables {
                 edgeId = (EdgeId) id;
             } else {
                 String[] idparts = EdgeId.split(id);
+                if (idparts.length == 1) {
+                    // Delete edge by label (The id is label id)
+                    return Arrays.asList(idparts);
+                }
+                id = IdUtil.readString(id.asString());
+                edgeId = EdgeId.parse(id.asString());
             }
+
+            E.checkState(edgeId.direction() == this.direction,
+                    "Can't query %s edges from %s edges table",
+                    edgeId.direction(), this.direction);
+
+            List<Object> list = new ArrayList<>(5);
+            list.add(IdUtil.writeStoredString(edgeId.ownerVertexId()));
+            list.add(edgeId.directionCode());
+            list.add(edgeId.edgeLabelId().asLong());
+            list.add(edgeId.sortValues());
+            list.add(IdUtil.writeStoredString(edgeId.otherVertexId()));
+            return list;
+        }
+
+        @Override
+        public void delete(Session session, TableBackendEntry.Row entry) {
+            // Let super class do delete if not deleting edge by label
+            List<Object> idParts = this.idColumnValue(entry.id());
+            if (idParts.size() > 1 || entry.columns().size() > 0)  {
+                super.delete(session, entry);
+                return;
+            }
+
+            // The only element is label
+            this.deleteEdgesByLabel(session, entry.id());
+        }
+
+        private void deleteEdgesByLabel(Session session, Id label) {
+            PreparedStatement deleteStmt;
+            try {
+                // Create or get delete prepare statement
+                deleteStmt = session.prepareStatement(this.delByLabelTemplate);
+                // Delete edges
+                deleteStmt.setObject(1, label.asLong());
+            } catch (SQLException e) {
+                throw new BackendException("Failed to prepare statement '%s'",
+                        this.delByLabelTemplate);
+            }
+            session.add(deleteStmt);
+        }
+
+        @Override
+        public BackendEntry mergeEntries(BackendEntry e1, BackendEntry e2) {
+            // Merge edges into vertex
+
+            ClickhouseBackendEntry current = (ClickhouseBackendEntry) e1;
+            ClickhouseBackendEntry next = (ClickhouseBackendEntry) e2;
+
+            E.checkState(current == null || current.type().isVertex(),
+                    "The current entry must be null or VERTEX");
+            E.checkState(next != null && next.type().isEdge(),
+                    "The next entry must be EDGE");
+
+            long maxSize = BackendEntryIterator.INLINE_BATCH_SIZE;
+            if (current != null && current.subRows().size() < maxSize) {
+                Id nextVertexId = IdGenerator.of(next.<String>column(HugeKeys.OWNER_VERTEX));
+                if (current.id().equals(nextVertexId)) {
+                    current.subRow(next.row());
+                    return current;
+                }
+            }
+
+            return this.wrapByVertex(next);
+        }
+
+        private ClickhouseBackendEntry wrapByVertex(ClickhouseBackendEntry edge) {
+            assert edge.type().isEdge();
+            String ownerVertex = edge.column(HugeKeys.OWNER_VERTEX);
+            E.checkState(ownerVertex != null, "Invalid backend entry");
+            Id vertexId = IdGenerator.of(ownerVertex);
+            ClickhouseBackendEntry vertex = new ClickhouseBackendEntry(HugeType.VERTEX, vertexId);
+
+            vertex.column(HugeKeys.ID, ownerVertex);
+            vertex.column(HugeKeys.PROPERTIES, "");
+
+            vertex.subRow(edge.row());
+            return vertex;
         }
 
         public static String table(Directions direction) {
-            assert direction == Directions.IN || direction == Directions.OUT;
+            assert direction == Directions.OUT || direction == Directions.IN;
             return direction.type().string() + TABLE_SUFFIX;
+        }
+
+        public static ClickhouseTable out(String store) {
+            return new Edge(store, Directions.OUT);
+        }
+
+        public static ClickhouseTable in(String store) {
+            return new Edge(store, Directions.IN);
+        }
+    }
+
+    public abstract static class Index extends ClickhouseTableTemplate {
+
+        public Index(String table) {
+            super(table);
+        }
+
+        public abstract String entryId(ClickhouseBackendEntry entry);
+    }
+
+    public static class SecondaryIndex extends Index {
+
+        // secondary index table name's '${store}_si'
+        public static final String TABLE = HugeType.SECONDARY_INDEX.string();
+
+        public SecondaryIndex(String store) {
+            this(store, TABLE);
+        }
+
+        public SecondaryIndex(String store, String table) {
+            super(joinTableName(store, table));
+
+            this.define = new TableDefine();
+            this.define.column(HugeKeys.FIELD_VALUES, SMALL_TEXT);
+            this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
+            this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
+            this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            this.define.keys(HugeKeys.INDEX_LABEL_ID,
+                    HugeKeys.FIELD_VALUES,
+                    HugeKeys.ELEMENT_IDS);
+        }
+
+        @Override
+        public final String entryId(ClickhouseBackendEntry entry) {
+            String fieldValues = entry.column(HugeKeys.FIELD_VALUES);
+            Integer labelId = entry.column(HugeKeys.INDEX_LABEL_ID);
+            return SplicingIdGenerator.concat(fieldValues, labelId.toString());
+        }
+    }
+
+    public static class SearchIndex extends SecondaryIndex {
+
+        // search index table name's '${store}_ai'
+        public static final String TABLE = HugeType.SEARCH_INDEX.string();
+
+        public SearchIndex(String store) {
+            super(store, TABLE);
+        }
+    }
+
+    public static class UniqueIndex extends SecondaryIndex {
+
+        // unique index table name's '${store}_ui'
+        public static final String TABLE = HugeType.UNIQUE_INDEX.string();
+
+        public UniqueIndex(String store) {
+            super(store, TABLE);
+        }
+    }
+
+    public static class RangeIndex extends Index {
+
+        public RangeIndex(String store, String table) {
+            super(joinTableName(store, table));
+
+            this.define = new TableDefine();
+            this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
+            this.define.column(HugeKeys.FIELD_VALUES, NUMERIC);
+            this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
+            this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            this.define.keys(HugeKeys.INDEX_LABEL_ID,
+                    HugeKeys.FIELD_VALUES,
+                    HugeKeys.ELEMENT_IDS);
+        }
+
+        @Override
+        public final String entryId(ClickhouseBackendEntry entry) {
+            Double fieldValues = entry.<Double>column(HugeKeys.FIELD_VALUES);
+            Integer labelId = entry.column(HugeKeys.INDEX_LABEL_ID);
+            return SplicingIdGenerator.concat(labelId.toString(),
+                    fieldValues.toString());
+        }
+    }
+
+    public static class RangeIntIndex extends RangeIndex {
+
+        // range int index table name's ${store}_ii
+        public static final String TABLE = HugeType.RANGE_INT_INDEX.string();
+
+        public RangeIntIndex(String store) {
+            this(store, TABLE);
+        }
+
+        public RangeIntIndex(String store, String table) {
+            super(store, table);
+
+            this.define = new TableDefine();
+            this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
+            this.define.column(HugeKeys.FIELD_VALUES, INT);
+            this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
+            this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            this.define.keys(HugeKeys.INDEX_LABEL_ID,
+                    HugeKeys.FIELD_VALUES,
+                    HugeKeys.ELEMENT_IDS);
+        }
+    }
+
+    public static class RangeFloatIndex extends RangeIndex {
+
+        // range float index table name's ${store}_fi
+        public static final String TABLE = HugeType.RANGE_FLOAT_INDEX.string();
+
+        public RangeFloatIndex(String store) {
+            this(store, TABLE);
+        }
+
+        public RangeFloatIndex(String store, String table) {
+            super(store, table);
+
+            this.define = new TableDefine();
+            this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
+            this.define.column(HugeKeys.FIELD_VALUES, NUMERIC);
+            this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
+            this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            this.define.keys(HugeKeys.INDEX_LABEL_ID,
+                    HugeKeys.FIELD_VALUES,
+                    HugeKeys.ELEMENT_IDS);
+        }
+    }
+
+    public static class RangeLongIndex extends RangeIndex {
+
+        // range long index table name's ${store}_li
+        public static final String TABLE = HugeType.RANGE_LONG_INDEX.string();
+
+        public RangeLongIndex(String store) {
+            this(store, TABLE);
+        }
+
+        public RangeLongIndex(String store, String table) {
+            super(store, table);
+
+            this.define = new TableDefine();
+            this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
+            this.define.column(HugeKeys.FIELD_VALUES, BIGINT);
+            this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
+            this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            this.define.keys(HugeKeys.INDEX_LABEL_ID,
+                    HugeKeys.FIELD_VALUES,
+                    HugeKeys.ELEMENT_IDS);
+        }
+    }
+
+    public static class RangeDoubleIndex extends RangeIndex {
+
+        // range double index table name's ${store}_di
+        public static final String TABLE = HugeType.RANGE_DOUBLE_INDEX.string();
+
+        public RangeDoubleIndex(String store) {
+            this(store, TABLE);
+        }
+
+        public RangeDoubleIndex(String store, String table) {
+            super(store, table);
+
+            this.define = new TableDefine();
+            this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
+            this.define.column(HugeKeys.FIELD_VALUES, NUMERIC);
+            this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
+            this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            this.define.keys(HugeKeys.INDEX_LABEL_ID,
+                    HugeKeys.FIELD_VALUES,
+                    HugeKeys.ELEMENT_IDS);
+        }
+    }
+
+    public static class ShardIndex extends Index {
+
+        // shard index table name's ${store}_hi
+        public static final String TABLE = HugeType.SHARD_INDEX.string();
+
+        public ShardIndex(String store) {
+            this(store, TABLE);
+        }
+
+        public ShardIndex(String store, String table) {
+            super(joinTableName(store, table));
+
+            this.define = new TableDefine();
+            this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
+            this.define.column(HugeKeys.FIELD_VALUES, SMALL_TEXT);
+            this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
+            this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            this.define.keys(HugeKeys.INDEX_LABEL_ID,
+                    HugeKeys.FIELD_VALUES,
+                    HugeKeys.ELEMENT_IDS);
+        }
+
+        @Override
+        public final String entryId(ClickhouseBackendEntry entry) {
+            Double fieldValues = entry.<Double>column(HugeKeys.FIELD_VALUES);
+            Integer labelId = entry.column(HugeKeys.INDEX_LABEL_ID);
+            return SplicingIdGenerator.concat(labelId.toString(),
+                    fieldValues.toString());
         }
     }
 }

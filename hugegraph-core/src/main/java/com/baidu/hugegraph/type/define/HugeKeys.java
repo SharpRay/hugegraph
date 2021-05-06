@@ -79,7 +79,11 @@ public enum HugeKeys {
     EXPIRED_TIME(208, "expired_time"),
 
     PROPERTY_TYPE(249, "property_type"),
-    AGGREGATE_PROPERTIES(250, "aggregate_properties");
+    AGGREGATE_PROPERTIES(250, "aggregate_properties"),
+
+    /* Column names of all tables need to be updated/deleted for clickhouse backend */
+    UPDATE_NANO(251, "update_nano"),
+    DELETED(252, "deleted");
 
     public static final long NORMAL_PROPERTY_ID = 0L;
 

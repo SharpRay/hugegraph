@@ -13,7 +13,6 @@ import com.baidu.hugegraph.type.HugeType;
 import com.baidu.hugegraph.type.define.HugeKeys;
 import com.baidu.hugegraph.util.InsertionOrderUtil;
 import com.baidu.hugegraph.util.JsonUtil;
-import groovy.json.JsonToken;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -106,7 +105,7 @@ public class ClickhouseSerializer extends TableSerializer {
     protected void parseProperties(HugeElement element,
                                    TableBackendEntry.Row row) {
         String properties = row.column(HugeKeys.PROPERTIES);
-        // Query edge will wrapped by a vertex, whose properteis is empty
+        // Query edge will wrapped by a vertex, whose properties is empty
         if (properties.isEmpty()) {
             return;
         }
@@ -119,7 +118,7 @@ public class ClickhouseSerializer extends TableSerializer {
              */
             Id pkeyId = this.toId(Long.valueOf(prop.getKey()));
             String colJson = JsonUtil.toJson(prop.getValue());
-            // Add property to Row instance passed in
+            // Add property to the HugeElement passed in
             this.parseProperty(pkeyId, colJson, element);
         }
     }
@@ -132,7 +131,7 @@ public class ClickhouseSerializer extends TableSerializer {
     }
 
     /**
-     * Read the userdata from an entry, and set it in schema.
+     * Read the userdata from an entry, and set it into schema.
      * @param schema
      * @param entry
      */
