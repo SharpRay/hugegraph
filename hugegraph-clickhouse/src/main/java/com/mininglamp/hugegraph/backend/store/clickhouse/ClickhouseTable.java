@@ -2,7 +2,10 @@ package com.mininglamp.hugegraph.backend.store.clickhouse;
 
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.id.Id;
+import com.baidu.hugegraph.backend.page.PageState;
 import com.baidu.hugegraph.backend.query.Aggregate;
+import com.baidu.hugegraph.backend.query.Condition;
+import com.baidu.hugegraph.backend.query.ConditionQuery;
 import com.baidu.hugegraph.backend.query.Query;
 import com.baidu.hugegraph.backend.serializer.TableBackendEntry;
 import com.baidu.hugegraph.backend.store.BackendEntry;
@@ -10,6 +13,7 @@ import com.baidu.hugegraph.backend.store.BackendTable;
 import com.baidu.hugegraph.backend.store.Shard;
 import com.baidu.hugegraph.backend.store.TableDefine;
 import com.baidu.hugegraph.backend.store.mysql.WhereBuilder;
+import com.baidu.hugegraph.exception.NotFoundException;
 import com.baidu.hugegraph.iterator.ExtendableIterator;
 import com.baidu.hugegraph.type.define.HugeKeys;
 import com.baidu.hugegraph.util.E;
@@ -17,8 +21,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
+import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseEntryIterator.PagePosition;
 import com.baidu.hugegraph.util.Log;
 import org.apache.commons.compress.utils.Lists;
+import org.apache.logging.log4j.util.Strings;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
 
@@ -92,7 +98,7 @@ public abstract class ClickhouseTable
             sql.append(defaultValue(entry.getKey()));
             sql.append(",\n");
         });
-        sql.append(")")
+        sql.append(")");
         // Specify engine
         sql.append(engine());
         // Specify partition
@@ -319,6 +325,10 @@ public abstract class ClickhouseTable
         return this.query(session, query, this::results2Entries);
     }
 
+    protected Iterator<BackendEntry> results2Entries(Query query, ResultSet results) {
+        return new ClickhouseEntryIterator(results, query, this::mergeEntries);
+    }
+
     protected <R> Iterator<R> query(Session session, Query query,
                                     BiFunction<Query, ResultSet,
                                             Iterator<R>> parser) {
@@ -342,6 +352,286 @@ public abstract class ClickhouseTable
         LOG.debug("Return {} for query {}", rs, query);
         return rs;
     }
+
+    protected List<StringBuilder> query2Select(String table, Query query) {
+        // Build query
+        StringBuilder select = new StringBuilder(128);
+        select.append("SELECT ");
+
+        // Set aggregate
+        Aggregate aggr = query.aggregate();
+        if (aggr != null) {
+            select.append(aggr.toString());
+        } else {
+            select.append("*");
+        }
+
+        // Set table
+        select.append(" FROM ").append(table);
+
+        // Is query by id?
+        List<StringBuilder> ids = this.queryId2Select(query, select);
+
+        List<StringBuilder> selections;
+
+        if (query.conditions().isEmpty()) {
+            // Query only by id
+            LOG.debug("Query only by id(s): {}", ids);
+            selections = ids;
+        } else {
+            ConditionQuery condQuery = (ConditionQuery) query;
+            if (condQuery.containsScanCondition()) {
+                assert ids.size() == 1;
+                return ImmutableList.of(queryByRange(condQuery, ids.get(0)));
+            }
+
+            selections = new ArrayList<>(ids.size());
+            for (StringBuilder selection : ids) {
+                // Query by condition
+                selections.addAll(this.queryCondition2Select(query, selection));
+            }
+            LOG.debug("Query by conditions: {}", selections);
+        }
+        // Set page, order-by and limit
+        for (StringBuilder selection : selections) {
+            boolean hasOrder = !query.orders().isEmpty();
+            if (hasOrder) {
+                this.wrapOrderBy(selection, query);
+            }
+            if (query.paging()) {
+                this.wrapPage(selection, query, false);
+                wrapLimit(selection, query);
+            } else {
+                if (aggr == null && !hasOrder) {
+                    select.append(this.orderByKeys());
+                }
+                if (!query.noLimit() || query.offset() >0L) {
+                    this.wrapOffset(selection, query);
+                }
+            }
+        }
+
+        return selections;
+    }
+
+    protected void wrapOffset(StringBuilder select, Query query) {
+        assert query.limit() >= 0;
+        assert query.offset() >= 0;
+        // Set limit and offset
+        select.append(" LIMIT ");
+        select.append(query.limit());
+        select.append(" OFFSET ");
+        select.append(query.offset());
+        select.append(";");
+
+        query.goOffset(query.offset());
+    }
+
+    protected void wrapOrderBy(StringBuilder select, Query query) {
+        int size = query.orders().size();
+        assert size > 0;
+
+        int i = 0;
+        // Set order-by
+        select.append(" ORDER BY ");
+        for (Map.Entry<HugeKeys, Query.Order> order : query.orders().entrySet()) {
+            String key = formatKey(order.getKey());
+            Query.Order value = order.getValue();
+            select.append(key).append(" ");
+            if (value == Query.Order.ASC) {
+                select.append("ASC");
+            } else {
+                assert value == Query.Order.DESC;
+                select.append("DESC");
+            }
+            if (++i != size) {
+                select.append(", ");
+            }
+        }
+    }
+
+    protected List<StringBuilder> queryCondition2Select(Query query, StringBuilder select) {
+        // Query by condition
+        Set<Condition> conditions = query.conditions();
+        List<StringBuilder> clauses = new ArrayList<>(conditions.size());
+        for (Condition condition : conditions) {
+            clauses.add(this.condition2Sql(condition));
+        }
+        WhereBuilder where = this.newWhereBuilder();
+        where.and(clauses);
+        select.append(where.build());
+        return ImmutableList.of(select);
+    }
+
+    protected StringBuilder condition2Sql(Condition condition) {
+        switch (condition.type()) {
+            case AND:
+                Condition.And and = (Condition.And) condition;
+                StringBuilder left = this.condition2Sql(and.left());
+                StringBuilder right = this.condition2Sql(and.right());
+                int size = left.length() + right.length() + " AND ".length();
+                StringBuilder sql = new StringBuilder(size);
+                sql.append(left).append(" AND ").append(right);
+                return sql;
+            case OR:
+                throw new BackendException("Not support OR currently");
+            case RELATION:
+                Condition.Relation r = (Condition.Relation) condition;
+                return this.relation2Sql(r);
+            default:
+                final String msg = "Unsupported condition: " + condition;
+                throw new AssertionError(msg);
+        }
+    }
+
+    protected StringBuilder relation2Sql(Condition.Relation relation) {
+        String key = relation.serialKey().toString();
+        Object value = relation.serialValue();
+
+        WhereBuilder sql = this.newWhereBuilder(false);
+        sql.relation(key, relation.relation(), value);
+        return sql.build();
+    }
+
+    protected StringBuilder queryByRange(ConditionQuery query,
+                                         StringBuilder select) {
+        E.checkArgument(query.relations().size() == 1,
+                "Invalid scan with multi conditions: %s", query);
+        Condition.Relation scan = query.relations().iterator().next();
+        Shard shard = (Shard) scan.value();
+
+        String page = query.page();
+        if (ClickhouseShardSpliter.START.equals(shard.start()) &&
+                ClickhouseShardSpliter.END.equals(shard.end()) &&
+                (page == null || page.isEmpty())) {
+            this.wrapLimit(select, query);
+            return select;
+        }
+
+        HugeKeys partitionKey = this.idColumnName().get(0);
+
+        if (page != null && !page.isEmpty()) {
+            // >= page
+            this.wrapPage(select, query, true);
+            // < end
+            WhereBuilder where = this.newWhereBuilder(false);
+            if (!ClickhouseShardSpliter.END.equals(shard.end())) {
+                where.and();
+                where.lt(formatKey(partitionKey), shard.end());
+            }
+            select.append(where.build());
+        } else {
+            // >= start
+            WhereBuilder where = this.newWhereBuilder();
+            boolean hasStart = false;
+            if (!ClickhouseShardSpliter.START.equals(shard.start())) {
+                where.gte(formatKey(partitionKey), shard.start());
+                hasStart = true;
+            }
+            // < end
+            if (!ClickhouseShardSpliter.END.equals(shard.end())) {
+                if (hasStart) {
+                    where.and();
+                }
+                where.lt(formatKey(partitionKey), shard.end());
+            }
+            select.append(where.build());
+        }
+        this.wrapLimit(select, query);
+
+        return select;
+    }
+
+    protected void wrapPage(StringBuilder select, Query query, boolean scan) {
+        String page = query.page();
+        // It's the first time if page is empty
+        if (!page.isEmpty()) {
+            byte[] position = PageState.fromString(page).position();
+            Map<HugeKeys, Object> columns = PagePosition
+                    .fromBytes(position).columns();
+
+            List<HugeKeys> idColumnNames = this.idColumnName();
+            List<Object> values = new ArrayList<>(idColumnNames.size());
+            for (HugeKeys key : idColumnNames) {
+                values.add(columns.get(key));
+            }
+
+            // Need add `where` to `select` when query is IdQuery
+            boolean exceptWhere = scan || query.conditions().isEmpty();
+            WhereBuilder where = this.newWhereBuilder(exceptWhere);
+            if (!exceptWhere) {
+                where.and();
+            }
+            where.gte(formatKeys(idColumnNames), values);
+            select.append(where.build());
+        }
+    }
+
+    private void wrapLimit(StringBuilder select, Query query) {
+        select.append(this.orderByKeys());
+        if (!query.noLimit()) {
+            // Fetch `limit + 1` rows for judging whether reached the last page
+            select.append(" limit ");
+            select.append(query.limit() + 1);
+        }
+    }
+
+    // TODO order shoud be specified, since Clickhouse do not ensure
+    // returning data with same order each time
+    protected String orderByKeys() {
+        return Strings.EMPTY;
+    }
+
+    protected List<StringBuilder> queryId2Select(Query query, StringBuilder select) {
+        // Query by id(s)
+        if (query.ids().isEmpty()) {
+            return ImmutableList.of(select);
+        }
+
+        List<HugeKeys> nameParts = this.idColumnName();
+
+        List<List<Object>> ids = new ArrayList<>(query.ids().size());
+        for (Id id : query.ids()) {
+            List<Object> idParts = this.idColumnValue(id);
+            if (nameParts.size() != idParts.size()) {
+                throw new NotFoundException(
+                        "Unsupported ID format '%s' (should contain %s)",
+                        id, nameParts);
+            }
+            ids.add(idParts);
+        }
+
+        // Query only by partition-key (primary-key)
+        if (nameParts.size() == 1) {
+            List<Object> values = new ArrayList<>(ids.size());
+            for (List<Object> objects : ids) {
+                assert objects.size() == 1;
+                values.add(objects.get(0));
+            }
+
+            WhereBuilder where = this.newWhereBuilder();
+            where.in(formatKey(nameParts.get(0)), values);
+            select.append(where.build());
+            return ImmutableList.of(select);
+        }
+
+        List<StringBuilder> selections = new ArrayList<>(ids.size());
+        for (List<Object> objects : ids) {
+            assert nameParts.size() == objects.size();
+            StringBuilder idSelection = new StringBuilder(select);
+            /*
+             * NOTE: concat with AND relation, like:
+             * "pk = id and ck1 = v1 and ck2 = v2"
+             */
+            WhereBuilder where = this.newWhereBuilder();
+            where.and(formatKeys(nameParts), objects);
+
+            idSelection.append(where.build());
+            selections.add(idSelection);
+        }
+        return selections;
+    }
+
 
     protected String buildDeleteTemplate(List<HugeKeys> idNames) {
         if (this.deleteTemplate != null) {

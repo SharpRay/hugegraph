@@ -4,8 +4,10 @@ import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.store.AbstractBackendStore;
 import com.baidu.hugegraph.backend.store.BackendFeatures;
 import com.baidu.hugegraph.backend.store.BackendStoreProvider;
+import com.baidu.hugegraph.backend.store.mysql.MysqlMetrics;
 import com.baidu.hugegraph.config.HugeConfig;
 import com.baidu.hugegraph.exception.ConnectionException;
+import com.baidu.hugegraph.traversal.algorithm.HugeTraverser;
 import com.baidu.hugegraph.type.HugeType;
 import com.baidu.hugegraph.util.E;
 import com.baidu.hugegraph.util.Log;
@@ -40,6 +42,13 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
 
         this.sessions = null;
         this.tables = new ConcurrentHashMap<>();
+    }
+
+    private void registerMetaHandlers() {
+        this.registerMetaHandler("metrics", (session, meta, args) -> {
+            MysqlMetrics metrics = new MysqlMetrics();
+            return metrics.getMetrics();
+        });
     }
 
     protected ClickhouseSessions openSessionPool(HugeConfig config) {
@@ -129,6 +138,19 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
     }
 
     @Override
+    public void close() {
+        LOG.debug("Store close: {}", this.store);
+        this.checkClusterConnected();
+        this.sessions.close();
+    }
+
+    @Override
+    public boolean opened() {
+        this.checkClusterConnected();
+        return this.sessions.session().opened();
+    }
+
+    @Override
     public void init() {
         this.checkClusterConnected();
         this.sessions.createDatabase();
@@ -142,6 +164,14 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
         this.initTables();
 
         LOG.debug("Store initialized: {}", this.store);
+    }
+
+    @Override
+    public void clear(boolean clearSpace) {
+        // Check connected
+        this.checkClusterConnected();
+
+        if (this.sessions.)
     }
 
     protected void initTables() {
