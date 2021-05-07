@@ -18,12 +18,12 @@ import com.baidu.hugegraph.iterator.ExtendableIterator;
 import com.baidu.hugegraph.type.define.HugeKeys;
 import com.baidu.hugegraph.util.E;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
 import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseEntryIterator.PagePosition;
 import com.baidu.hugegraph.util.Log;
-import org.apache.commons.compress.utils.Lists;
 import org.apache.logging.log4j.util.Strings;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
@@ -318,6 +318,10 @@ public abstract class ClickhouseTable
             }
         });
         return aggr.reduce(results);
+    }
+
+    public static HugeKeys parseKey(String name) {
+        return HugeKeys.valueOf(name.toUpperCase());
     }
 
     @Override

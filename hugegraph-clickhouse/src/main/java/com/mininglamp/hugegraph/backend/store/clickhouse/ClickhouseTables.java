@@ -101,7 +101,6 @@ public class ClickhouseTables {
                             "'%s' AS %s",
                     this.table(), increment, this.table(),
                     schemaCol, type.name(), type.name(), schemaCol);
-            )
 
             try {
                 session.execute(insert, this.table());

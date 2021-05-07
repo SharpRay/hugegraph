@@ -3,6 +3,7 @@ package com.mininglamp.hugegraph.backend.store.clickhouse;
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.store.BackendSession;
 import com.baidu.hugegraph.backend.store.BackendSessionPool;
+import com.baidu.hugegraph.backend.store.mysql.MysqlUtil;
 import com.baidu.hugegraph.config.HugeConfig;
 import com.baidu.hugegraph.util.Log;
 import org.apache.commons.lang.StringUtils;
@@ -11,9 +12,11 @@ import org.apache.logging.log4j.core.net.SslSocketManager;
 import org.apache.logging.log4j.util.Strings;
 import org.slf4j.Logger;
 
+import java.net.SocketTimeoutException;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 public class ClickhouseSessions extends BackendSessionPool {
 
@@ -84,6 +87,52 @@ public class ClickhouseSessions extends BackendSessionPool {
         }
     }
 
+    public void dropDatabase() {
+        LOG.debug("Drop database: {}", this.database());
+
+        String sql = this.buildDropDatabase(this.database());
+        try (Connection conn = this.openWithoutDB(DROP_DB_TIMEOUT)) {
+            conn.createStatement().execute(sql);
+        } catch (SQLException e) {
+            if (e.getCause() instanceof SocketTimeoutException) {
+                LOG.warn("Drop database '{}' timeout", this.database());
+            } else {
+                throw new BackendException("Failed to drop database '%s'",
+                        e, this.database());
+            }
+        }
+    }
+
+    public boolean existsDatabase() {
+        try (Connection conn = this.openWithoutDB(0);
+             ResultSet result = conn.getMetaData().getCatalogs()) {
+            while (result.next()) {
+                String dbName = result.getString(1);
+                if (dbName.equals(this.database())) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            throw new BackendException("Failed to obtain database info", e);
+        }
+        return false;
+    }
+
+    public void resetConnections() {
+        // Close the under layer connections owned by each thread
+        this.forceResetSessions();
+    }
+
+    public boolean existsTable(String table) {
+        String sql = this.buildExistsTable(table);
+        try (Connection conn = this.openWithDB(0);
+             ResultSet result = conn.createStatement().executeQuery(sql)) {
+            return result.next();
+        } catch (Exception e) {
+            throw new BackendException("Failed to obtain table info", e);
+        }
+    }
+
     /**
      * Connect DB with specified database, but won't auto reconnect.
      */
@@ -111,6 +160,21 @@ public class ClickhouseSessions extends BackendSessionPool {
     protected String buildCreateDatabase(String database) {
         return String.format("CREATE DATABASE IF NOT EXISTS %s",
                 database);
+    }
+
+    protected String buildDropDatabase(String database) {
+        return String.format("DROP DATABASE IF EXISTS %s;", database);
+    }
+
+    protected String buildExistsTable(String table) {
+        return String.format("SELECT * FROM system.tables " +
+                "WHERE database = '%s' AND " +
+                "name = '%s' LIMIT 1;",
+                this.escapedDatabase(), MysqlUtil.escapeString(table));
+    }
+
+    public String escapedDatabase() {
+        return MysqlUtil.escapeString(this.database());
     }
 
     protected String buildUri(boolean withConnParams, boolean withDB,
@@ -299,6 +363,73 @@ public class ClickhouseSessions extends BackendSessionPool {
                 execute(sql, null);
             }
             return res;
+        }
+
+        public void begin() throws SQLException {
+        }
+
+        public void end() throws SQLException {
+        }
+
+        public void endAndLog() {
+
+        }
+
+        @Override
+        public Integer commit() {
+            int updated = 0;
+            try {
+                for (PreparedStatement statement : this.statements.values()) {
+                    updated += IntStream.of(statement.executeBatch()).sum();
+                }
+                this.conn.commit();
+                this.clear();
+            } catch (SQLException e) {
+                throw new BackendException("Failed to commit", e);
+            }
+            this.endAndLog();
+            return updated;
+        }
+
+        @Override
+        public void rollback() {
+            this.clear();
+            throw new UnsupportedOperationException("Transaction is not supported by Clickhouse");
+        }
+
+        @Override
+        public boolean hasChanges() {
+            return this.count > 0;
+        }
+
+        @Override
+        public void reconnectIfNeeded() {
+            if (!this.opened) {
+                return;
+            }
+
+            if (this.conn == null) {
+                tryOpen();
+            }
+
+            try {
+                this.execute("SELECT 1;");
+            } catch (SQLException ignored) {
+                // pass
+            }
+        }
+
+        @Override
+        public void reset() {
+            // NOTE: this method mauy by called by other threads
+            if (this.conn == null) {
+                return;
+            }
+            try {
+                this.doClose();
+            } catch (Exception e) {
+                LOG.warn("Failed to reset connection", e);
+            }
         }
 
         public boolean execute(String sql) throws SQLException {

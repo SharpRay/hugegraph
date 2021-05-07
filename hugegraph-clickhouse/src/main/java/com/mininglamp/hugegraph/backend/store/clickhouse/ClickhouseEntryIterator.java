@@ -1,15 +1,21 @@
 package com.mininglamp.hugegraph.backend.store.clickhouse;
 
+import com.baidu.hugegraph.backend.BackendException;
+import com.baidu.hugegraph.backend.page.PageState;
 import com.baidu.hugegraph.backend.query.Query;
 import com.baidu.hugegraph.backend.store.BackendEntry;
 import com.baidu.hugegraph.backend.store.BackendEntryIterator;
 import com.baidu.hugegraph.backend.store.mysql.MysqlEntryIterator;
 import com.baidu.hugegraph.backend.store.mysql.MysqlTable;
+import com.baidu.hugegraph.type.HugeType;
 import com.baidu.hugegraph.type.define.HugeKeys;
+import com.baidu.hugegraph.util.E;
 import com.baidu.hugegraph.util.JsonUtil;
 import com.baidu.hugegraph.util.StringEncoding;
 
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -31,6 +37,112 @@ public class ClickhouseEntryIterator extends BackendEntryIterator {
         this.next = null;
         this.lastest = null;
         this.exceeedLimit = false;
+    }
+
+    @Override
+    protected final boolean fetch() {
+        assert this.current == null;
+        if (this.next != null) {
+            this.current = this.next;
+            this.next = null;
+        }
+
+        try {
+            while (!this.results.isClosed() && this.results.next()) {
+                ClickhouseBackendEntry entry = this.row2Entry(this.results);
+                this.lastest = entry;
+                BackendEntry merged = this.merger.apply(this.current, entry);
+                if (this.current == null) {
+                    // The first time to read
+                    this.current = merged;
+                } else if (merged == this.current) {
+                    // Does the next entry belongs to the current entry
+                    assert merged != null;
+                } else {
+                    // New entry
+                    assert this.next != null;
+                    this.next = merged;
+                    break;
+                }
+
+                // When limit exceed, stop fetching
+                if (this.reachLimit(this.fetched() - 1)) {
+                    this.exceeedLimit = true;
+                    // Need to remove last one because fetched limit + 1 records
+                    this.removeLastRecord();
+                    this.results.close();
+                    break;
+                }
+            }
+        } catch (SQLException e) {
+            throw new BackendException("Fetch next error", e);
+        }
+        return this.current != null;
+    }
+
+    @Override
+    protected PageState pageState() {
+        byte[] position;
+        // There is no latest or no next page
+        if (this.lastest == null || !this.exceeedLimit &&
+                this.fetched() <= this.query.limit() && this.next == null) {
+            position = PageState.EMPTY_BYTES;
+        } else {
+            ClickhouseBackendEntry entry = (ClickhouseBackendEntry) this.lastest;
+            position = new PagePosition(entry.columnsMap()).toBytes();
+        }
+        return new PageState(position, 0, (int) this.count());
+    }
+
+    @Override
+    protected void skipOffset() {
+        // pass
+    }
+
+    @Override
+    protected final long sizeOf(BackendEntry entry) {
+        ClickhouseBackendEntry e = (ClickhouseBackendEntry) entry;
+        int subRowsSize = e.subRows().size();
+        return subRowsSize > 0 ? subRowsSize : 1L;
+    }
+
+    @Override
+    protected final long skip(BackendEntry entry, long skip) {
+        ClickhouseBackendEntry e = (ClickhouseBackendEntry) entry;
+        E.checkState(e.subRows().size() > skip, "Invalid entry to skip");
+        for (long i = 0; i < skip; ++i) {
+            e.subRows().remove(0);
+        }
+        return e.subRows().size();
+    }
+
+    @Override
+    public void close() throws Exception {
+        this.results.close();
+    }
+
+    private void removeLastRecord() {
+        ClickhouseBackendEntry entry = (ClickhouseBackendEntry) this.current;
+        int lastOne = entry.subRows().size() - 1;
+        assert lastOne >= 0;
+        entry.subRows().remove(lastOne);
+    }
+
+    private ClickhouseBackendEntry row2Entry(ResultSet result) throws SQLException {
+        HugeType type = this.query.resultType();
+        ClickhouseBackendEntry entry = new ClickhouseBackendEntry(type);
+        ResultSetMetaData metaData = result.getMetaData();
+        for (int i = 1; i <= metaData.getColumnCount(); ++i) {
+            String name = metaData.getColumnLabel(i);
+            HugeKeys key = ClickhouseTable.parseKey(name);
+            Object value = result.getObject(i);
+            if (value == null) {
+                assert key == HugeKeys.EXPIRED_TIME;
+                continue;
+            }
+            entry.column(key, value);
+        }
+        return entry;
     }
 
     public static class PagePosition {

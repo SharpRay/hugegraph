@@ -1,20 +1,21 @@
 package com.mininglamp.hugegraph.backend.store.clickhouse;
 
 import com.baidu.hugegraph.backend.BackendException;
-import com.baidu.hugegraph.backend.store.AbstractBackendStore;
-import com.baidu.hugegraph.backend.store.BackendFeatures;
-import com.baidu.hugegraph.backend.store.BackendStoreProvider;
+import com.baidu.hugegraph.backend.id.Id;
+import com.baidu.hugegraph.backend.query.Query;
+import com.baidu.hugegraph.backend.store.*;
 import com.baidu.hugegraph.backend.store.mysql.MysqlMetrics;
+import com.baidu.hugegraph.backend.store.mysql.MysqlTable;
 import com.baidu.hugegraph.config.HugeConfig;
 import com.baidu.hugegraph.exception.ConnectionException;
-import com.baidu.hugegraph.traversal.algorithm.HugeTraverser;
 import com.baidu.hugegraph.type.HugeType;
 import com.baidu.hugegraph.util.E;
 import com.baidu.hugegraph.util.Log;
+import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
 import org.slf4j.Logger;
 
-import java.util.Collection;
-import java.util.Map;
+import java.sql.SQLException;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSessions.Session> {
@@ -171,7 +172,146 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
         // Check connected
         this.checkClusterConnected();
 
-        if (this.sessions.)
+        if (this.sessions.existsDatabase()) {
+            if (!clearSpace) {
+                this.checkOpened();
+                this.clearTables();
+                this.sessions.resetConnections();
+            } else {
+                this.sessions.dropDatabase();
+            }
+        }
+
+        LOG.debug("Store cleared: {}", this.store);
+    }
+
+    @Override
+    public boolean initialized() {
+        this.checkClusterConnected();
+
+        if (!this.sessions.existsDatabase()) {
+            return false;
+        }
+        for (ClickhouseTable table : this.tables()) {
+            if (!this.sessions.existsTable(table.table())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void truncate() {
+        this.checkOpened();
+
+        this.truncateTables();
+        LOG.debug("Store truncated: {}", this.store);
+    }
+
+    @Override
+    public void mutate(BackendMutation mutation) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Store {} mutation: {}", this.store, mutation);
+        }
+
+        this.checkOpened();
+        Session session = this.sessions.session();
+
+        for (Iterator<BackendAction> it = mutation.mutation(); it.hasNext();) {
+            this.mutate(session, it.next());
+        }
+    }
+
+    private void mutate(Session session, BackendAction item) {
+        ClickhouseBackendEntry entry = castBackendEntry(item.entry());
+        ClickhouseTable table = this.table(entry.type());
+
+        switch (item.action()) {
+            case INSERT:
+                table.insert(session, entry.row());
+            case DELETE:
+                table.delete(session, entry.row());
+            case APPEND:
+                table.append(session, entry.row());
+            case ELIMINATE:
+                table.eliminate(session, entry.row());
+            default:
+                throw new AssertionError(String.format(
+                        "Unsupported mutate action: %s", item.action()));
+        }
+    }
+
+    @Override
+    public Iterator<BackendEntry> query(Query query) {
+        this.checkOpened();
+
+        ClickhouseTable table = this.table(ClickhouseTable.tableType(query));
+        return table.query(this.sessions.session(), query);
+    }
+
+    @Override
+    public Number queryNumber(Query query) {
+        this.checkOpened();
+
+        ClickhouseTable table = this.table(ClickhouseTable.tableType(query));
+        return table.queryNumber(this.sessions.session(), query);
+    }
+
+    @Override
+    public void beginTx() {
+        this.checkOpened();
+
+        Session session = this.sessions.session();
+        try {
+            session.begin();
+        } catch (SQLException e) {
+            throw new BackendException("Failed to open transaction", e);
+        }
+    }
+
+    @Override
+    public void commitTx() {
+        this.checkOpened();
+
+        Session session = this.sessions.session();
+        int count = session.commit();
+        LOG.debug("Store {} committed {} items", this.store, count);
+    }
+
+    @Override
+    public void rollbackTx() {
+        this.checkOpened();
+
+        Session session = this.sessions.session();
+        session.rollback();
+    }
+
+    @Override
+    public BackendFeatures features() {
+        return FEATURES;
+    }
+
+
+    protected static ClickhouseBackendEntry castBackendEntry(BackendEntry entry) {
+        if (!(entry instanceof BackendEntry)) {
+            throw new BackendException(
+                    "Clickhouse store only supports ClickhouseBackendEntry");
+        }
+        return (ClickhouseBackendEntry) entry;
+    }
+
+    protected void clearTables() {
+        Session session = this.sessions.session();
+        for (ClickhouseTable table : this.tables()) {
+            table.clear(session);
+        }
+    }
+
+    protected void truncateTables() {
+        Session session = this.sessions.session();
+        for (ClickhouseTable table : this.tables()) {
+            table.truncate(session);
+        }
     }
 
     protected void initTables() {
@@ -207,6 +347,27 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
             registerTableManager(HugeType.INDEX_LABEL,
                     new ClickhouseTables.IndexLabel());
 
+        }
+
+        @Override
+        protected Collection<ClickhouseTable> tables() {
+            List<ClickhouseTable> tables = new ArrayList<>(super.tables());
+            tables.add(this.counters);
+            return tables;
+        }
+
+        @Override
+        public void increaseCounter(HugeType type, long increment) {
+            this.checkOpened();
+            Session session = super.sessions.session();
+            this.counters.increaseCounter(session, type, increment);
+        }
+
+        @Override
+        public long getCounter(HugeType type) {
+            this.checkOpened();
+            Session session = super.sessions.session();
+            return this.counters.getCounter(session, type);
         }
 
         @Override
@@ -250,6 +411,23 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
         @Override
         public boolean isSchemaStore() {
             return false;
+        }
+
+        @Override
+        public Id nextId(HugeType type) {
+            throw new UnsupportedOperationException("MysqlGraphStore.nextId()");
+        }
+
+        @Override
+        public void increaseCounter(HugeType type, long num) {
+            throw new UnsupportedOperationException(
+                    "MysqlGraphStore.increaseCounter()");
+        }
+
+        @Override
+        public long getCounter(HugeType type) {
+            throw new UnsupportedOperationException(
+                    "MysqlGraphStore.getCounter()");
         }
     }
 }
