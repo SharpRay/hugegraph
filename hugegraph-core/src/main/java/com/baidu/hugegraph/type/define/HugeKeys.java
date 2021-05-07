@@ -75,7 +75,10 @@ public enum HugeKeys {
     DIRECTION(205, "direction"),
     SORT_VALUES(206, "sort_values"),
     PRIMARY_VALUES(207, "primary_values"),
-    EXPIRED_TIME(208, "expired_time");
+    EXPIRED_TIME(208, "expired_time"),
+
+    UPDATE_NANO(211, "update_nano"),
+    DELETED(212, "deleted");
 
     /* HugeKeys define */
     private byte code = 0;
