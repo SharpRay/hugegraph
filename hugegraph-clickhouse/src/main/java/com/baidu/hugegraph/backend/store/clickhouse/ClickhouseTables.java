@@ -1,4 +1,4 @@
-package com.mininglamp.hugegraph.backend.store.clickhouse;
+package com.baidu.hugegraph.backend.store.clickhouse;
 
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.id.*;
@@ -11,7 +11,7 @@ import com.baidu.hugegraph.type.define.Directions;
 import com.baidu.hugegraph.type.define.HugeKeys;
 
 import com.baidu.hugegraph.util.E;
-import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
+import com.baidu.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -143,6 +143,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.TTL, INT);
             // 'ttl_start_time' column of table 'vl'
             this.define.column(HugeKeys.TTL_START_TIME, DATATYPE_PK);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.ID);
         }
     }
@@ -184,6 +188,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.TTL, INT);
             // 'ttl_start_time' column of table 'el'
             this.define.column(HugeKeys.TTL_START_TIME, DATATYPE_PK);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.ID);
         }
     }
@@ -213,6 +221,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.USER_DATA, LARGE_JSON);
             // 'status' column of table 'pk'
             this.define.column(HugeKeys.STATUS, TINYINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.ID);
         }
     }
@@ -242,6 +254,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.USER_DATA, LARGE_JSON);
             // 'status' column of table 'il'
             this.define.column(HugeKeys.STATUS, TINYINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.ID);
         }
     }
@@ -263,6 +279,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.PROPERTIES, HUGE_TEXT);
             // 'expired_time' column of table 'V'
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.ID);
         }
     }
@@ -443,6 +463,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.INDEX_LABEL_ID, DATATYPE_IL);
             this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.INDEX_LABEL_ID,
                     HugeKeys.FIELD_VALUES,
                     HugeKeys.ELEMENT_IDS);
@@ -486,6 +510,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.FIELD_VALUES, NUMERIC);
             this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.INDEX_LABEL_ID,
                     HugeKeys.FIELD_VALUES,
                     HugeKeys.ELEMENT_IDS);
@@ -517,6 +545,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.FIELD_VALUES, INT);
             this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.INDEX_LABEL_ID,
                     HugeKeys.FIELD_VALUES,
                     HugeKeys.ELEMENT_IDS);
@@ -540,6 +572,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.FIELD_VALUES, NUMERIC);
             this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.INDEX_LABEL_ID,
                     HugeKeys.FIELD_VALUES,
                     HugeKeys.ELEMENT_IDS);
@@ -563,6 +599,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.FIELD_VALUES, BIGINT);
             this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.INDEX_LABEL_ID,
                     HugeKeys.FIELD_VALUES,
                     HugeKeys.ELEMENT_IDS);
@@ -586,6 +626,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.FIELD_VALUES, NUMERIC);
             this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.INDEX_LABEL_ID,
                     HugeKeys.FIELD_VALUES,
                     HugeKeys.ELEMENT_IDS);
@@ -609,6 +653,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.FIELD_VALUES, SMALL_TEXT);
             this.define.column(HugeKeys.ELEMENT_IDS, SMALL_TEXT);
             this.define.column(HugeKeys.EXPIRED_TIME, BIGINT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.INDEX_LABEL_ID,
                     HugeKeys.FIELD_VALUES,
                     HugeKeys.ELEMENT_IDS);

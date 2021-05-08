@@ -1,4 +1,4 @@
-package com.mininglamp.hugegraph.backend.store.clickhouse;
+package com.baidu.hugegraph.backend.store.clickhouse;
 
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.store.BackendSession;
@@ -8,7 +8,6 @@ import com.baidu.hugegraph.config.HugeConfig;
 import com.baidu.hugegraph.util.Log;
 import org.apache.commons.lang.StringUtils;
 import org.apache.http.client.utils.URIBuilder;
-import org.apache.logging.log4j.core.net.SslSocketManager;
 import org.apache.logging.log4j.util.Strings;
 import org.slf4j.Logger;
 

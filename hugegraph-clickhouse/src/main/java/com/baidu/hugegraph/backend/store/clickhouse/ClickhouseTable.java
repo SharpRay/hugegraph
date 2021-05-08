@@ -1,4 +1,4 @@
-package com.mininglamp.hugegraph.backend.store.clickhouse;
+package com.baidu.hugegraph.backend.store.clickhouse;
 
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.id.Id;
@@ -21,8 +21,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
-import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseEntryIterator.PagePosition;
+import com.baidu.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
+import com.baidu.hugegraph.backend.store.clickhouse.ClickhouseEntryIterator.PagePosition;
 import com.baidu.hugegraph.util.Log;
 import org.apache.logging.log4j.util.Strings;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;

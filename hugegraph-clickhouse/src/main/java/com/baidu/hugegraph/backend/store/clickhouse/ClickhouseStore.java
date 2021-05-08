@@ -1,17 +1,15 @@
-package com.mininglamp.hugegraph.backend.store.clickhouse;
+package com.baidu.hugegraph.backend.store.clickhouse;
 
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.id.Id;
 import com.baidu.hugegraph.backend.query.Query;
 import com.baidu.hugegraph.backend.store.*;
 import com.baidu.hugegraph.backend.store.mysql.MysqlMetrics;
-import com.baidu.hugegraph.backend.store.mysql.MysqlTable;
 import com.baidu.hugegraph.config.HugeConfig;
 import com.baidu.hugegraph.exception.ConnectionException;
 import com.baidu.hugegraph.type.HugeType;
 import com.baidu.hugegraph.util.E;
 import com.baidu.hugegraph.util.Log;
-import com.mininglamp.hugegraph.backend.store.clickhouse.ClickhouseSessions.Session;
 import org.slf4j.Logger;
 
 import java.sql.SQLException;
@@ -215,14 +213,14 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
         }
 
         this.checkOpened();
-        Session session = this.sessions.session();
+        ClickhouseSessions.Session session = this.sessions.session();
 
         for (Iterator<BackendAction> it = mutation.mutation(); it.hasNext();) {
             this.mutate(session, it.next());
         }
     }
 
-    private void mutate(Session session, BackendAction item) {
+    private void mutate(ClickhouseSessions.Session session, BackendAction item) {
         ClickhouseBackendEntry entry = castBackendEntry(item.entry());
         ClickhouseTable table = this.table(entry.type());
 
@@ -261,7 +259,7 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
     public void beginTx() {
         this.checkOpened();
 
-        Session session = this.sessions.session();
+        ClickhouseSessions.Session session = this.sessions.session();
         try {
             session.begin();
         } catch (SQLException e) {
@@ -273,7 +271,7 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
     public void commitTx() {
         this.checkOpened();
 
-        Session session = this.sessions.session();
+        ClickhouseSessions.Session session = this.sessions.session();
         int count = session.commit();
         LOG.debug("Store {} committed {} items", this.store, count);
     }
@@ -282,7 +280,7 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
     public void rollbackTx() {
         this.checkOpened();
 
-        Session session = this.sessions.session();
+        ClickhouseSessions.Session session = this.sessions.session();
         session.rollback();
     }
 
@@ -301,14 +299,14 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
     }
 
     protected void clearTables() {
-        Session session = this.sessions.session();
+        ClickhouseSessions.Session session = this.sessions.session();
         for (ClickhouseTable table : this.tables()) {
             table.clear(session);
         }
     }
 
     protected void truncateTables() {
-        Session session = this.sessions.session();
+        ClickhouseSessions.Session session = this.sessions.session();
         for (ClickhouseTable table : this.tables()) {
             table.truncate(session);
         }
@@ -359,14 +357,14 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
         @Override
         public void increaseCounter(HugeType type, long increment) {
             this.checkOpened();
-            Session session = super.sessions.session();
+            ClickhouseSessions.Session session = super.sessions.session();
             this.counters.increaseCounter(session, type, increment);
         }
 
         @Override
         public long getCounter(HugeType type) {
             this.checkOpened();
-            Session session = super.sessions.session();
+            ClickhouseSessions.Session session = super.sessions.session();
             return this.counters.getCounter(session, type);
         }
 
