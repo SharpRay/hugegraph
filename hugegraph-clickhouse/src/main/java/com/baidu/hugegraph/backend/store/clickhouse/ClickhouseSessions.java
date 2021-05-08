@@ -83,6 +83,7 @@ public class ClickhouseSessions extends BackendSessionPool {
                         e, this.database());
             }
             // Ignore exception if database already exists
+            throw new BackendException(e.getMessage());
         }
     }
 
@@ -103,8 +104,9 @@ public class ClickhouseSessions extends BackendSessionPool {
     }
 
     public boolean existsDatabase() {
+        String sql = "SELECT DISTINCT(database) FROM system.tables";
         try (Connection conn = this.openWithoutDB(0);
-             ResultSet result = conn.getMetaData().getCatalogs()) {
+             ResultSet result = conn.createStatement().executeQuery(sql)) {
             while (result.next()) {
                 String dbName = result.getString(1);
                 if (dbName.equals(this.database())) {
@@ -195,7 +197,7 @@ public class ClickhouseSessions extends BackendSessionPool {
                     .setParameter("initialTimeout", String.valueOf(interval));
         }
         if (timeout != null) {
-            builder.setParameter("socketTimeput", String.valueOf(timeout));
+            builder.setParameter("socketTimeout", String.valueOf(timeout));
         }
         return builder.toString();
     }

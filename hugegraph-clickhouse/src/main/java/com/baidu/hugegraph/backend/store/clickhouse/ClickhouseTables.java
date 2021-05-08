@@ -66,6 +66,10 @@ public class ClickhouseTables {
             this.define.column(HugeKeys.SCHEMA_TYPE, SMALL_TEXT);
             // One of counter table's column name's 'id'
             this.define.column(HugeKeys.ID, INT);
+            // The column indicates that the record was deleted or not
+            this.define.column(HugeKeys.DELETED, BOOLEAN);
+            // The column as the version field of ReplacingMergeTree
+            this.define.column(HugeKeys.UPDATE_NANO, BIGINT);
             this.define.keys(HugeKeys.SCHEMA_TYPE);
         }
 
@@ -74,7 +78,7 @@ public class ClickhouseTables {
             String idCol = formatKey(HugeKeys.ID);
 
             // Get id from counter table using schema_type field with value type
-            String select = String.format("SELECT MAX(id) AS ID FROM %s WHERE %s = '%s';",
+            String select = String.format("SELECT MAX(ID) AS ID FROM %s WHERE %s = '%s';",
                     this.table(), schemaCol, type.name());
 
             try {
@@ -96,14 +100,15 @@ public class ClickhouseTables {
             String schemaCol = formatKey(HugeKeys.SCHEMA_TYPE);
 
             String insert = String.format(
-                    "INSERT INTO %s SELECT " +
-                            "(SELECT MAX(id) + %s FROM %s WHERE %s = '%s') AS id, " +
+                    "INSERT INTO %s (ID, %s) SELECT " +
+                            "(SELECT MAX(ID) + %s FROM %s WHERE %s = '%s') AS ID, " +
                             "'%s' AS %s",
-                    this.table(), increment, this.table(),
+                    this.table(), schemaCol, increment, this.table(),
                     schemaCol, type.name(), type.name(), schemaCol);
 
             try {
-                session.execute(insert, this.table());
+                //session.execute(insert, this.table());
+                session.execute(insert);
             } catch (SQLException e) {
                 throw new BackendException("Failed to update counters " + "with '%s'", insert);
             }

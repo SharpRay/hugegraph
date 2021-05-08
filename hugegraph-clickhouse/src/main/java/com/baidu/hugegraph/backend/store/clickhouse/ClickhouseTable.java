@@ -91,13 +91,18 @@ public abstract class ClickhouseTable
         sql.append("CREATE TABLE IF NOT EXISTS ");
         sql.append(this.table()).append(" (");
         // Add column
-        tableDefine.columns().entrySet().forEach(entry -> {
+        int i = 0;
+        for (Map.Entry<HugeKeys, String> entry : tableDefine.columns().entrySet()) {
             sql.append(formatKey(entry.getKey()));
             sql.append(" ");
             sql.append(entry.getValue());
             sql.append(defaultValue(entry.getKey()));
-            sql.append(",\n");
-        });
+            if (++i == tableDefine.columns().size()) {
+                sql.append("\n");
+            } else {
+                sql.append(",\n");
+            }
+        }
         sql.append(")");
         // Specify engine
         sql.append(engine());
@@ -151,26 +156,27 @@ public abstract class ClickhouseTable
 
     private StringBuilder primaryKey(TableDefine tableDefine) {
         StringBuilder primaryKey = new StringBuilder();
-        primaryKey.append("ORDER BY ");
+        primaryKey.append("ORDER BY (");
         primaryKey.append(
             tableDefine.keys().stream()
                     .map(ClickhouseTable::formatKey)
                     .collect(Collectors.joining(","))
         );
+        primaryKey.append(")");
         return primaryKey;
     }
 
     private StringBuilder engine() {
         StringBuilder enginePart = new StringBuilder();
         enginePart.append(String.format(" ENGINE=ReplacingMergeTree(%s)\n",
-                HugeKeys.UPDATE_NANO.string()));
+                formatKey(HugeKeys.UPDATE_NANO)));
         return enginePart;
     }
 
     private StringBuilder partition(TableDefine tableDefine) {
         StringBuilder partitionPart = new StringBuilder();
         if (tableDefine.columns().containsKey(HugeKeys.LABEL)) {
-            partitionPart.append(String.format(" PARTITION BY %s\n", HugeKeys.LABEL.string()));
+            partitionPart.append(String.format(" PARTITION BY %s\n", formatKey(HugeKeys.LABEL)));
         }
         return partitionPart;
     }

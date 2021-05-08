@@ -128,6 +128,21 @@ public class ClickhouseEntryIterator extends BackendEntryIterator {
         entry.subRows().remove(lastOne);
     }
 
+    /**
+     * UInt8 is the boolean type in CH,
+     * this transformation could avoid
+     * the type casting error in deserialization.
+     */
+    private Object int2Boolean(HugeKeys key, Object value) {
+        if (key != HugeKeys.ENABLE_LABEL_INDEX) {
+            return value;
+        }
+        if ((Integer) value == 1) {
+            return true;
+        }
+        return false;
+    }
+
     private ClickhouseBackendEntry row2Entry(ResultSet result) throws SQLException {
         HugeType type = this.query.resultType();
         ClickhouseBackendEntry entry = new ClickhouseBackendEntry(type);
@@ -135,7 +150,7 @@ public class ClickhouseEntryIterator extends BackendEntryIterator {
         for (int i = 1; i <= metaData.getColumnCount(); ++i) {
             String name = metaData.getColumnLabel(i);
             HugeKeys key = ClickhouseTable.parseKey(name);
-            Object value = result.getObject(i);
+            Object value = int2Boolean(key, result.getObject(i));
             if (value == null) {
                 assert key == HugeKeys.EXPIRED_TIME;
                 continue;

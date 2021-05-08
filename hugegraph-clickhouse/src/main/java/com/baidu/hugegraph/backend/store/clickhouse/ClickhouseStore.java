@@ -75,9 +75,8 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
         try {
             this.sessions.open();
         } catch (Exception e) {
-            // This exception must be throwed because the db has not created
-            if (!e.getMessage().startsWith("Unknown database") &&
-                    !e.getMessage().endsWith("does not exist")) {
+            // This exception must be thrown because the db has not created
+            if (!e.getMessage().matches("^.*Database .+ doesn't exist .*\\s*$")) {
                 throw new ConnectionException("Failed to connect to MySQL", e);
             }
             if (this.isSchemaStore()) {
@@ -227,12 +226,16 @@ public abstract class ClickhouseStore extends AbstractBackendStore<ClickhouseSes
         switch (item.action()) {
             case INSERT:
                 table.insert(session, entry.row());
+                break;
             case DELETE:
                 table.delete(session, entry.row());
+                break;
             case APPEND:
                 table.append(session, entry.row());
+                break;
             case ELIMINATE:
                 table.eliminate(session, entry.row());
+                break;
             default:
                 throw new AssertionError(String.format(
                         "Unsupported mutate action: %s", item.action()));

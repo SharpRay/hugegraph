@@ -23,9 +23,10 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <!-- Do not use 0.3.1 -->
             <groupId>ru.yandex.clickhouse</groupId>
             <artifactId>clickhouse-jdbc</artifactId>
-            <version>0.3.1</version>
+            <version>0.2.4</version>
         </dependency>
     </dependencies>
 
