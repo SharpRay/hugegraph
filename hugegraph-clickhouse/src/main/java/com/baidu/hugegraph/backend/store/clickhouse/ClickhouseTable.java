@@ -287,7 +287,6 @@ public abstract class ClickhouseTable
                 for (int i = 0, n = idNames.size(); i < n; ++i) {
                     HugeKeys key = idNames.get(i);
                     Object value = entry.column(key);
-
                     stmt.setObject(i + 1, value);
                 }
             }
@@ -380,7 +379,7 @@ public abstract class ClickhouseTable
         select.append(" FROM ").append(table);
 
         // Is query by id?
-        List<StringBuilder> ids = this.queryId2Select(query, select);
+        List<StringBuilder> ids = this.queryId2Select(query, select, table);
 
         List<StringBuilder> selections;
 
@@ -467,8 +466,12 @@ public abstract class ClickhouseTable
         for (Condition condition : conditions) {
             clauses.add(this.condition2Sql(condition));
         }
-        WhereBuilder where = this.newWhereBuilder();
-        where.and(clauses);
+//        WhereBuilder where = this.newWhereBuilder();
+        /*
+         * Because of the existence of UPDATE_NANO predicate
+         */
+        WhereBuilder where = this.newWhereBuilder(false);
+        where.and().and(clauses);
         select.append(where.build());
         return ImmutableList.of(select);
     }
@@ -568,10 +571,16 @@ public abstract class ClickhouseTable
 
             // Need add `where` to `select` when query is IdQuery
             boolean exceptWhere = scan || query.conditions().isEmpty();
-            WhereBuilder where = this.newWhereBuilder(exceptWhere);
-            if (!exceptWhere) {
-                where.and();
-            }
+//            WhereBuilder where = this.newWhereBuilder(exceptWhere);
+//            if (!exceptWhere) {
+//                where.and();
+//            }
+
+            /*
+             * Because of the existence of the UPDATE_NANO IN predicate
+             */
+            WhereBuilder where = this.newWhereBuilder(false);
+            where.and();
             where.gte(formatKeys(idColumnNames), values);
             select.append(where.build());
         }
@@ -592,9 +601,65 @@ public abstract class ClickhouseTable
         return Strings.EMPTY;
     }
 
-    protected List<StringBuilder> queryId2Select(Query query, StringBuilder select) {
+    private String newestUpdateNanoRelation(Query query, String table) {
+        List<HugeKeys> primaryKey = this.tableDefine().keys();
+        boolean partitioning = false;
+        switch (query.resultType()) {
+            case EDGE:
+            case VERTEX:
+                partitioning = true;
+                break;
+            default:
+        }
+        // Build where
+        StringBuilder where = new StringBuilder();
+        where.append("UPDATE_NANO IN (SELECT MAX(UPDATE_NANO) AS UPDATE_NANO FROM ")
+                .append(table);
+        where.append(" WHERE %s");
+        wrapGroup(where, primaryKey, partitioning);
+        where.append(")");
+        return where.toString();
+    }
+
+    private void wrapGroup(StringBuilder select,
+                           List<HugeKeys> primaryKey,
+                           boolean partitioning) {
+        select.append(" GROUP BY ");
+        if (partitioning) {
+            select.append("LABEL, ");
+        }
+        int i = 0;
+        for (HugeKeys key : primaryKey) {
+            select.append(formatKey(key));
+            if (++i != primaryKey.size()) {
+                select.append(", ");
+            }
+        }
+    }
+
+    private WhereBuilder andConditionWithUpdateNanoRelation(StringBuilder updateNanoRelation,
+                                                            StringBuilder... whereBuilders) {
+        WhereBuilder whereBuilder = newWhereBuilder();
+        List<StringBuilder> wbs = new ArrayList<>(Arrays.asList(whereBuilders));
+        wbs.add(updateNanoRelation);
+        whereBuilder.and(wbs);
+        return whereBuilder;
+    }
+
+    protected List<StringBuilder> queryId2Select(Query query,
+                                                 StringBuilder select,
+                                                 String table) {
+
+        String updateNanoClause = newestUpdateNanoRelation(query, table);
+        WhereBuilder deletedWhere = newWhereBuilder(false);
+        deletedWhere.relation(formatKey(HugeKeys.DELETED), Condition.RelationType.EQ, 0);
+
         // Query by id(s)
         if (query.ids().isEmpty()) {
+            WhereBuilder where = andConditionWithUpdateNanoRelation(
+                    new StringBuilder(String.format(updateNanoClause, "1=1")),
+                    deletedWhere.build());
+            select.append(where);
             return ImmutableList.of(select);
         }
 
@@ -619,8 +684,12 @@ public abstract class ClickhouseTable
                 values.add(objects.get(0));
             }
 
-            WhereBuilder where = this.newWhereBuilder();
-            where.in(formatKey(nameParts.get(0)), values);
+            WhereBuilder where1 = this.newWhereBuilder(false);
+            where1.in(formatKey(nameParts.get(0)), values);
+            updateNanoClause = String.format(updateNanoClause, where1.build());
+            WhereBuilder where = andConditionWithUpdateNanoRelation(new StringBuilder(updateNanoClause),
+                    where1.build(),
+                    deletedWhere.build());
             select.append(where.build());
             return ImmutableList.of(select);
         }
@@ -633,9 +702,12 @@ public abstract class ClickhouseTable
              * NOTE: concat with AND relation, like:
              * "pk = id and ck1 = v1 and ck2 = v2"
              */
-            WhereBuilder where = this.newWhereBuilder();
-            where.and(formatKeys(nameParts), objects);
-
+            WhereBuilder where1 = this.newWhereBuilder(false);
+            where1.and(formatKeys(nameParts), objects);
+            updateNanoClause = String.format(updateNanoClause, where1.build());
+            WhereBuilder where = andConditionWithUpdateNanoRelation(new StringBuilder(updateNanoClause),
+                    where1.build(),
+                    deletedWhere.build());
             idSelection.append(where.build());
             selections.add(idSelection);
         }
@@ -658,6 +730,7 @@ public abstract class ClickhouseTable
         ProjectionBuilder projection = this.newProjectionBuilder();
         projection.projection(generateDeletedReplacement(), generateExceptions());
         delete.append(projection.build());
+        delete.append(" FROM ").append(this.table());
 
         WhereBuilder where = this.newWhereBuilder();
         where.and(formatKeys(idNames), "=");
@@ -775,15 +848,15 @@ public abstract class ClickhouseTable
 
         public ProjectionBuilder projection(Map<HugeKeys, Object> replacements, Set<HugeKeys> exceptions) {
             replacements.entrySet().forEach(entry -> {
-                String column = entry.getKey().string();
-                Object value = entry.getKey();
+                String column = formatKey(entry.getKey());
+                Object value = entry.getValue();
                 if (value instanceof String) {
                     value = String.format("'%s'", value);
                 }
                 builder.append(String.format("REPLACE %s AS %s ", value, column));
             });
             exceptions.forEach(column ->
-                    builder.append(String.format("EXCEPT %s ", column.string())));
+                    builder.append(String.format("EXCEPT %s ", formatKey(column))));
             return this;
         }
 
@@ -814,7 +887,7 @@ public abstract class ClickhouseTable
                     .collect(Collectors.toList());
             int size = columns.size();
             for (int i = 0; i < size; ++i) {
-                this.builder.append(columns.get(i).string());
+                this.builder.append(formatKey(columns.get(i)));
                 if (i != size - 1) {
                     this.builder.append(",");
                 }
