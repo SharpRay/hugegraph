@@ -192,6 +192,38 @@ public class HugeTraverser {
         return results;
     }
 
+    protected Iterator<Edge> edgesOfVertices(List<Id> source, Directions dir,
+                                             Id label, Map<Id, Node> targets,
+                                             long limit) {
+        Id[] labels = {};
+        if (label != null) {
+            labels = new Id[]{label};
+        }
+
+        Query query = GraphTransaction.constructEdgesQuery(source, dir, targets, labels);
+        if (limit != NO_LIMIT) {
+            query.limit(limit);
+        }
+        return this.graph.edges(query);
+    }
+
+
+    protected Iterator<Edge> edgesOfVertices(List<Id> source, Directions dir,
+                                             Map<Id, String> labels,
+                                             Map<Id, Node> targets,
+                                             long limit) {
+        if (labels == null || labels.isEmpty()) {
+            return this.edgesOfVertices(source, dir, (Id) null, targets, limit);
+        }
+        ExtendableIterator<Edge> results = new ExtendableIterator<>();
+        for (Id label : labels.keySet()) {
+            E.checkNotNull(label, "edge label");
+            // TODO: limit shoud be applied to all labels
+            results.extend(this.edgesOfVertices(source, dir, label, targets, limit));
+        }
+        return results;
+    }
+
     protected Iterator<Edge> edgesOfVertex(Id source, EdgeStep edgeStep) {
         if (edgeStep.properties == null || edgeStep.properties.isEmpty()) {
             Iterator<Edge> edges = this.edgesOfVertex(source,

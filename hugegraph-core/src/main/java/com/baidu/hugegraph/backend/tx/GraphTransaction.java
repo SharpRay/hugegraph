@@ -32,6 +32,7 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import com.baidu.hugegraph.traversal.algorithm.HugeTraverser;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
@@ -1163,6 +1164,47 @@ public class GraphTransaction extends IndexableTransaction {
         return query;
     }
 
+    public static ConditionQuery constructEdgesQuery(List<Id> sourceVertices,
+                                                     Directions direction,
+                                                     Map<Id, HugeTraverser.Node> targets,
+                                                     Id... edgeLabels) {
+        E.checkState(sourceVertices != null,
+                "The edge query must contain source vertices");
+        E.checkState(direction != null,
+                "The edge query must contain direction");
+
+        ConditionQuery query = new ConditionQuery(HugeType.EDGE);
+
+        // Edge source vertices
+        query.query(Condition.in(HugeKeys.OWNER_VERTEX, sourceVertices));
+
+        // Edge direction
+        if (direction == Directions.BOTH) {
+            query.query(Condition.or(
+                    Condition.eq(HugeKeys.DIRECTION, Directions.OUT),
+                    Condition.eq(HugeKeys.DIRECTION, Directions.IN)));
+        } else {
+            assert direction == Directions.OUT || direction == Directions.IN;
+            query.eq(HugeKeys.DIRECTION, direction);
+        }
+
+        // Edge lables
+        if (edgeLabels.length == 1) {
+            query.eq(HugeKeys.LABEL, edgeLabels[0]);
+        } else if (edgeLabels.length > 1) {
+            query.query(Condition.in(HugeKeys.LABEL,
+                    Arrays.asList(edgeLabels)));
+        } else {
+            assert edgeLabels.length == 0;
+        }
+
+        if (targets.size() != 0) {
+            query.query(Condition.in(HugeKeys.OTHER_VERTEX, new ArrayList<>(targets.keySet())));
+        }
+
+        return query;
+    }
+
     public static boolean matchFullEdgeSortKeys(ConditionQuery query,
                                                 HugeGraph graph) {
         // All queryKeys in sortKeys
@@ -1258,6 +1300,9 @@ public class GraphTransaction extends IndexableTransaction {
         int matched = 0;
         for (HugeKeys key : EdgeId.KEYS) {
             Object value = query.condition(key);
+            if (key == HugeKeys.SORT_VALUES && value == null) {
+                continue;
+            }
             if (value == null) {
                 break;
             }

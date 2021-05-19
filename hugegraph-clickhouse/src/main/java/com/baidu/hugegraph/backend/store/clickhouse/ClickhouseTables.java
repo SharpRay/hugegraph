@@ -315,7 +315,7 @@ public class ClickhouseTables {
 
             this.direction = direction;
             this.delByLabelTemplate = String.format(
-                    "ALTER TABLE %s DROP PART '?';",
+                    "ALTER TABLE %s DROP PARTITION ?;",
                     this.table());
 
             this.define = new TableDefine();

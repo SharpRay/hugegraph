@@ -27,7 +27,7 @@ public class ClickhouseEntryIterator extends BackendEntryIterator {
 
     private BackendEntry next;
     private BackendEntry lastest;
-    private boolean exceeedLimit;
+    private boolean exceedLimit;
 
     public ClickhouseEntryIterator(ResultSet rs, Query query,
                                    BiFunction<BackendEntry, BackendEntry, BackendEntry> merger) {
@@ -36,7 +36,7 @@ public class ClickhouseEntryIterator extends BackendEntryIterator {
         this.merger = merger;
         this.next = null;
         this.lastest = null;
-        this.exceeedLimit = false;
+        this.exceedLimit = false;
     }
 
     @Override
@@ -60,14 +60,14 @@ public class ClickhouseEntryIterator extends BackendEntryIterator {
                     assert merged != null;
                 } else {
                     // New entry
-                    assert this.next != null;
+                    assert this.next == null;
                     this.next = merged;
                     break;
                 }
 
                 // When limit exceed, stop fetching
                 if (this.reachLimit(this.fetched() - 1)) {
-                    this.exceeedLimit = true;
+                    this.exceedLimit = true;
                     // Need to remove last one because fetched limit + 1 records
                     this.removeLastRecord();
                     this.results.close();
@@ -84,7 +84,7 @@ public class ClickhouseEntryIterator extends BackendEntryIterator {
     protected PageState pageState() {
         byte[] position;
         // There is no latest or no next page
-        if (this.lastest == null || !this.exceeedLimit &&
+        if (this.lastest == null || !this.exceedLimit &&
                 this.fetched() <= this.query.limit() && this.next == null) {
             position = PageState.EMPTY_BYTES;
         } else {

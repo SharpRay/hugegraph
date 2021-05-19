@@ -473,6 +473,8 @@ public abstract class ClickhouseTable
         WhereBuilder where = this.newWhereBuilder(false);
         where.and().and(clauses);
         select.append(where.build());
+        System.out.println("SELECT =================== " + select.toString());
+        Set<Integer> set = new HashSet(Arrays.asList(26113, 29953, 8964, 4359, 2824, 21514, 30997, 11285, 26391, 7703, 23064, 19481, 11041, 24101, 19496, 26666, 3883, 1069, 8750, 27950, 25391, 5168, 2353, 36659, 31540, 36158, 29248, 17990, 22086, 27723, 27468, 11341, 10063, 16978, 16724, 3925, 9557, 17240, 16472, 2400, 1890, 24936, 29289, 31345, 17788, 20094, 5251, 18570, 15246, 13199, 35472, 4755, 7062, 31127, 29849, 20122, 11675, 2973, 23454, 928, 14497, 11682, 31143, 17321, 32940, 16045, 16557, 14254, 35502, 33455, 2229, 5820, 29117, 5053, 27586, 32450, 11715, 18629, 30921, 11465, 18380, 15053, 3539, 34259, 24533, 26328, 8153, 33500, 32736, 16865, 11491, 16870, 19433, 17642, 1771, 15340, 7662, 26608, 2294, 32508));
         return ImmutableList.of(select);
     }
 
@@ -616,6 +618,10 @@ public abstract class ClickhouseTable
         where.append("UPDATE_NANO IN (SELECT MAX(UPDATE_NANO) AS UPDATE_NANO FROM ")
                 .append(table);
         where.append(" WHERE %s");
+        // If query has conditions, then append them to optimize perf
+        if (!query.conditions().isEmpty()) {
+            where = queryCondition2Select(query, where).get(0);
+        }
         wrapGroup(where, primaryKey, partitioning);
         where.append(")");
         return where.toString();
@@ -735,6 +741,7 @@ public abstract class ClickhouseTable
         WhereBuilder where = this.newWhereBuilder();
         where.and(formatKeys(idNames), "=");
         delete.append(where.build());
+        delete.append(" ORDER BY UPDATE_NANO DESC LIMIT 1");
 
         this.deleteTemplate = delete.toString();
         return this.deleteTemplate;

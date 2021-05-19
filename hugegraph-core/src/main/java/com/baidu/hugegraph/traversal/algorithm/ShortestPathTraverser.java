@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
@@ -165,6 +166,56 @@ public class ShortestPathTraverser extends HugeTraverser {
             this.size = 0L;
         }
 
+//        /**
+//         * Search forward from source
+//         */
+//        public PathSet forward(boolean all) {
+//            PathSet paths = new PathSet();
+//            Map<Id, Node> newVertices = newMap();
+//            long degree = this.skipDegree > 0L ? this.skipDegree : this.degree;
+//            // Traversal vertices of previous level
+//            for (Node v : this.sources.values()) {
+//                Iterator<Edge> edges = edgesOfVertex(v.id(), this.direction,
+//                                                     this.labels, degree);
+//                edges = skipSuperNodeIfNeeded(edges, this.degree,
+//                                              this.skipDegree);
+//                while (edges.hasNext()) {
+//                    HugeEdge edge = (HugeEdge) edges.next();
+//                    Id target = edge.id().otherVertexId();
+//
+//                    // If cross point exists, shortest path found, concat them
+//                    if (this.targets.containsKey(target)) {
+//                        if (this.superNode(target, this.direction)) {
+//                            continue;
+//                        }
+//                        paths.add(new Path(
+//                                  v.joinPath(this.targets.get(target))));
+//                        if (!all) {
+//                            return paths;
+//                        }
+//                    }
+//
+//                    /*
+//                     * Not found shortest path yet, node is added to
+//                     * newVertices if:
+//                     * 1. not in sources and newVertices yet
+//                     * 2. path of node doesn't have loop
+//                     */
+//                    if (!newVertices.containsKey(target) &&
+//                        !this.sources.containsKey(target) &&
+//                        !v.contains(target)) {
+//                        newVertices.put(target, new Node(target, v));
+//                    }
+//                }
+//            }
+//
+//            // Re-init sources
+//            this.sources = newVertices;
+//            this.size += newVertices.size();
+//
+//            return paths;
+//       }
+
         /**
          * Search forward from source
          */
@@ -173,38 +224,37 @@ public class ShortestPathTraverser extends HugeTraverser {
             Map<Id, Node> newVertices = newMap();
             long degree = this.skipDegree > 0L ? this.skipDegree : this.degree;
             // Traversal vertices of previous level
-            for (Node v : this.sources.values()) {
-                Iterator<Edge> edges = edgesOfVertex(v.id(), this.direction,
-                                                     this.labels, degree);
-                edges = skipSuperNodeIfNeeded(edges, this.degree,
-                                              this.skipDegree);
-                while (edges.hasNext()) {
-                    HugeEdge edge = (HugeEdge) edges.next();
-                    Id target = edge.id().otherVertexId();
+            List<Id> nodeIds = this.sources.values().stream()
+                    .map(node -> node.id()).collect(Collectors.toList());
+            // TODO: supernode check?
+            Iterator<Edge> edges = edgesOfVertices(nodeIds, this.direction,
+                    this.labels, targets, degree);
+            while (edges.hasNext()) {
+                HugeEdge edge = (HugeEdge) edges.next();
+                Id target = edge.id().otherVertexId();
+                Node v = new Node(edge.id().ownerVertexId());
 
-                    // If cross point exists, shortest path found, concat them
-                    if (this.targets.containsKey(target)) {
-                        if (this.superNode(target, this.direction)) {
-                            continue;
-                        }
-                        paths.add(new Path(
-                                  v.joinPath(this.targets.get(target))));
-                        if (!all) {
-                            return paths;
-                        }
+                if (this.targets.containsKey(target)) {
+                    if (this.superNode(target, this.direction)) {
+                        continue;
                     }
+                    paths.add(new Path(
+                            v.joinPath(this.targets.get(target))));
+                    if (!all) {
+                        return paths;
+                    }
+                }
 
-                    /*
-                     * Not found shortest path yet, node is added to
-                     * newVertices if:
-                     * 1. not in sources and newVertices yet
-                     * 2. path of node doesn't have loop
-                     */
-                    if (!newVertices.containsKey(target) &&
+                /*
+                 * Bot found shortest path yet, node is added to
+                 * newVertices if:
+                 * 1. not in sources and newVertices yet
+                 * 2. path of node doesn't have loop
+                 */
+                if (!newVertices.containsKey(target) &&
                         !this.sources.containsKey(target) &&
                         !v.contains(target)) {
-                        newVertices.put(target, new Node(target, v));
-                    }
+                    newVertices.put(target, new Node(target, v));
                 }
             }
 
@@ -215,6 +265,67 @@ public class ShortestPathTraverser extends HugeTraverser {
             return paths;
         }
 
+//        /**
+//         * Search backward from target
+//         */
+//        public PathSet backward(boolean all) {
+//            PathSet paths = new PathSet();
+//            Map<Id, Node> newVertices = newMap();
+//            long degree = this.skipDegree > 0L ? this.skipDegree : this.degree;
+//            Directions opposite = this.direction.opposite();
+//            // Traversal vertices of previous level
+//            for (Node v : this.targets.values()) {
+//                Iterator<Edge> edges = edgesOfVertex(v.id(), opposite,
+//                                                     this.labels, degree);
+//                edges = skipSuperNodeIfNeeded(edges, this.degree,
+//                                              this.skipDegree);
+//                while (edges.hasNext()) {
+//                    HugeEdge edge = (HugeEdge) edges.next();
+//                    Id target = edge.id().otherVertexId();
+//
+//                    // If cross point exists, shortest path found, concat them
+//                    if (this.sources.containsKey(target)) {
+//                        if (this.superNode(target, opposite)) {
+//                            continue;
+//                        }
+//                        paths.add(new Path(
+//                                  v.joinPath(this.sources.get(target))));
+//                        if (!all) {
+//                            return paths;
+//                        }
+//                    }
+//
+//                    /*
+//                     * Not found shortest path yet, node is added to
+//                     * newVertices if:
+//                     * 1. not in targets and newVertices yet
+//                     * 2. path of node doesn't have loop
+//                     */
+//                    if (!newVertices.containsKey(target) &&
+//                        !this.targets.containsKey(target) &&
+//                        !v.contains(target)) {
+//                        newVertices.put(target, new Node(target, v));
+//                    }
+//                }
+//            }
+//
+//            // Re-init targets
+//            this.targets = newVertices;
+//            this.size += newVertices.size();
+//
+//            return paths;
+//        }
+//
+//        private boolean superNode(Id vertex, Directions direction) {
+//            if (this.skipDegree <= 0L) {
+//                return false;
+//            }
+//            Iterator<Edge> edges = edgesOfVertex(vertex, direction,
+//                                                 this.labels, this.skipDegree);
+//            return IteratorUtils.count(edges) >= this.skipDegree;
+//        }
+//    }
+
         /**
          * Search backward from target
          */
@@ -224,38 +335,38 @@ public class ShortestPathTraverser extends HugeTraverser {
             long degree = this.skipDegree > 0L ? this.skipDegree : this.degree;
             Directions opposite = this.direction.opposite();
             // Traversal vertices of previous level
-            for (Node v : this.targets.values()) {
-                Iterator<Edge> edges = edgesOfVertex(v.id(), opposite,
-                                                     this.labels, degree);
-                edges = skipSuperNodeIfNeeded(edges, this.degree,
-                                              this.skipDegree);
-                while (edges.hasNext()) {
-                    HugeEdge edge = (HugeEdge) edges.next();
-                    Id target = edge.id().otherVertexId();
+            List<Id> nodeIds = this.targets.values().stream()
+                    .map(node -> node.id()).collect(Collectors.toList());
+            // TODO supernode check?
+            Iterator<Edge> edges = edgesOfVertices(nodeIds, opposite,
+                    this.labels, this.sources, degree);
+            while (edges.hasNext()) {
+                HugeEdge edge = (HugeEdge) edges.next();
+                Id target = edge.id().otherVertexId();
+                Node v = new Node(edge.id().ownerVertexId());
 
-                    // If cross point exists, shortest path found, concat them
-                    if (this.sources.containsKey(target)) {
-                        if (this.superNode(target, opposite)) {
-                            continue;
-                        }
-                        paths.add(new Path(
-                                  v.joinPath(this.sources.get(target))));
-                        if (!all) {
-                            return paths;
-                        }
+                // If cross point exists, shortest path found, concat them
+                if (this.sources.containsKey(target)) {
+                    if (this.superNode(target, opposite)) {
+                        continue;
                     }
+                    paths.add(new Path(
+                            v.joinPath(this.sources.get(target))));
+                    if (!all) {
+                        return paths;
+                    }
+                }
 
-                    /*
-                     * Not found shortest path yet, node is added to
-                     * newVertices if:
-                     * 1. not in targets and newVertices yet
-                     * 2. path of node doesn't have loop
-                     */
-                    if (!newVertices.containsKey(target) &&
+                /*
+                 * Not found shortest path yet, node is added to
+                 * newVertices if:
+                 * 1. not in targets and newVertices yet
+                 * 2. path of node doesn't have loop
+                 */
+                if (!newVertices.containsKey(target) &&
                         !this.targets.containsKey(target) &&
                         !v.contains(target)) {
-                        newVertices.put(target, new Node(target, v));
-                    }
+                    newVertices.put(target, new Node(target, v));
                 }
             }
 
@@ -271,7 +382,7 @@ public class ShortestPathTraverser extends HugeTraverser {
                 return false;
             }
             Iterator<Edge> edges = edgesOfVertex(vertex, direction,
-                                                 this.labels, this.skipDegree);
+                    this.labels, this.skipDegree);
             return IteratorUtils.count(edges) >= this.skipDegree;
         }
     }

@@ -93,6 +93,9 @@ public class RegisterUtil {
             case "postgresql":
                 registerPostgresql();
                 break;
+            case "clickhouse":
+                registerClickhouse();
+                break;
             default:
                 throw new HugeException("Unsupported backend type '%s'",
                                         backend);
@@ -180,6 +183,18 @@ public class RegisterUtil {
         // Register backend
         BackendProviderFactory.register("postgresql",
                 "com.baidu.hugegraph.backend.store.postgresql.PostgresqlStoreProvider");
+    }
+
+    public static void registerClickhouse() {
+        // Register config
+        OptionSpace.register("clickhouse",
+                "com.baidu.hugegraph.backend.store.clickhouse.ClickhouseOptions");
+        // Register serializer
+        SerializerFactory.register("clickhouse",
+                "com.baidu.hugegraph.backend.store.clickhouse.ClickhouseSerializer");
+        // Register backend
+        BackendProviderFactory.register("clickhouse",
+                "com.baidu.hugegraph.backend.store.clickhouse.ClickhouseStoreProvider");
     }
 
     public static void registerServer() {
